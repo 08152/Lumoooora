@@ -1,0 +1,70 @@
+[
+  {
+    "frage": "Was ist Minecraft?",
+    "antwort": "Minecraft ist ein Sandbox-Spiel, in dem Spieler eine blockartige Welt erkunden, bauen und verändern können.",
+    "themen": [
+      "minecraft",
+      "spiel",
+      "sandbox"
+    ]
+  },
+  {
+    "frage": "Was kann man in Minecraft machen?",
+    "antwort": "In Minecraft kann man bauen, erkunden, Rohstoffe sammeln, Gegenstände herstellen und gegen verschiedene Kreaturen kämpfen.",
+    "themen": [
+      "minecraft",
+      "bauen",
+      "erkunden",
+      "crafting"
+    ]
+  },
+  {
+    "frage": "Was ist eine KI?",
+    "antwort": "Eine künstliche Intelligenz ist ein Computersystem, das Aufgaben bearbeiten kann, für die normalerweise menschliche Fähigkeiten wie Erkennen, Lernen oder Sprachverarbeitung benötigt werden.",
+    "themen": [
+      "ki",
+      "künstliche intelligenz",
+      "computer"
+    ]
+  },
+  {
+    "frage": "Was kannst du?",
+    "antwort": "Ich kann Informationen aus meiner Datenbasis analysieren, passende Inhalte finden und daraus neue Antworten formulieren.",
+    "themen": [
+      "ki",
+      "fähigkeiten",
+      "datenbasis"
+    ]
+  },
+  {
+    "frage": "Hallo",
+    "antwort": "Hallo! Schön, dass du da bist. Wie kann ich dir helfen?",
+    "themen": [
+      "begrüßung"
+    ]
+  },
+  {
+    "frage": "Danke",
+    "antwort": "Gerne!",
+    "themen": [
+      "höflichkeit"
+    ]
+  },
+  {
+    "frage": "Was ist ein Computer?",
+    "antwort": "Ein Computer ist ein elektronisches Gerät, das Daten verarbeitet und Programme ausführt.",
+    "themen": [
+      "computer",
+      "technik"
+    ]
+  },
+  {
+    "frage": "Was bedeutet Internet?",
+    "antwort": "Das Internet ist ein weltweites Netzwerk miteinander verbundener Computer und Geräte, über das Daten ausgetauscht werden.",
+    "themen": [
+      "internet",
+      "netzwerk",
+      "technik"
+    ]
+  }
+]
