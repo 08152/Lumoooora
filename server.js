@@ -7,9 +7,12 @@ const url = require("url");
 
 const {
   Tokenizer,
-  normalizeText,
-  tokenize
+  normalizeText
 } = require("./tokenizer");
+
+const {
+  generateAnswer
+} = require("./generator");
 
 
 /*
@@ -22,22 +25,34 @@ const PORT = process.env.PORT || 10000;
 
 const ROOT = __dirname;
 
-const DATA_DIR =
-  path.join(ROOT, "DATEN");
+const DATA_DIR = path.join(ROOT, "DATEN");
 
-const INDEX_FILE =
-  path.join(ROOT, "index.html");
+const INDEX_FILE = path.join(ROOT, "index.html");
 
+
+/*
+=========================================================
+TOKENIZER
+=========================================================
+*/
 
 const tokenizer = new Tokenizer();
 
+
+/*
+=========================================================
+DATENBANK
+=========================================================
+*/
+
 let documents = [];
+
 let idf = new Map();
 
 
 /*
 =========================================================
-JSON REKURSIV DURCHSUCHEN
+JSON IN TEXT UMWANDELN
 =========================================================
 */
 
@@ -45,18 +60,27 @@ function flattenJson(value, prefix = "") {
 
   const result = [];
 
+
+  /*
+  Objekt
+  */
+
   if (
     value &&
     typeof value === "object" &&
     !Array.isArray(value)
   ) {
 
-    for (const [key, child] of Object.entries(value)) {
+    for (
+      const [key, child]
+      of Object.entries(value)
+    ) {
 
       const nextPrefix =
         prefix
           ? `${prefix}.${key}`
           : key;
+
 
       result.push(
         ...flattenJson(
@@ -64,33 +88,45 @@ function flattenJson(value, prefix = "") {
           nextPrefix
         )
       );
+
     }
 
     return result;
   }
 
 
+  /*
+  Array
+  */
+
   if (Array.isArray(value)) {
 
-    value.forEach((child, index) => {
+    value.forEach(
+      (child, index) => {
 
-      result.push(
-        ...flattenJson(
-          child,
-          `${prefix}[${index}]`
-        )
-      );
+        result.push(
+          ...flattenJson(
+            child,
+            `${prefix}[${index}]`
+          )
+        );
 
-    });
+      }
+    );
 
     return result;
   }
 
 
+  /*
+  Einzelner Wert
+  */
+
   result.push([
     prefix,
     String(value ?? "")
   ]);
+
 
   return result;
 }
@@ -98,26 +134,40 @@ function flattenJson(value, prefix = "") {
 
 /*
 =========================================================
-FELD REKURSIV SUCHEN
+FELD REKURSIV FINDEN
 =========================================================
 */
 
-function findFieldRecursive(record, names) {
+function findFieldRecursive(
+  record,
+  names
+) {
 
   if (
     !record ||
     typeof record !== "object"
   ) {
+
     return null;
   }
 
+
   const wanted =
     names.map(
-      name => name.toLowerCase()
+      name =>
+        String(name).toLowerCase()
     );
 
 
+  /*
+  Objekt
+  */
+
   if (!Array.isArray(record)) {
+
+    /*
+    Erst direkte Felder prüfen
+    */
 
     for (
       const [key, value]
@@ -127,18 +177,25 @@ function findFieldRecursive(record, names) {
       if (
         wanted.includes(
           String(key).toLowerCase()
-        ) &&
-        (
-          typeof value === "string" ||
-          typeof value === "number" ||
-          typeof value === "boolean"
         )
       ) {
 
-        return String(value);
+        if (
+          typeof value === "string" ||
+          typeof value === "number" ||
+          typeof value === "boolean"
+        ) {
+
+          return String(value);
+
+        }
       }
     }
 
+
+    /*
+    Danach verschachtelte Felder
+    */
 
     for (
       const value
@@ -151,14 +208,27 @@ function findFieldRecursive(record, names) {
           names
         );
 
+
       if (found !== null) {
+
         return found;
+
       }
     }
 
-  } else {
+  }
 
-    for (const value of record) {
+
+  /*
+  Array
+  */
+
+  else {
+
+    for (
+      const value
+      of record
+    ) {
 
       const found =
         findFieldRecursive(
@@ -166,8 +236,11 @@ function findFieldRecursive(record, names) {
           names
         );
 
+
       if (found !== null) {
+
         return found;
+
       }
     }
   }
@@ -179,7 +252,7 @@ function findFieldRecursive(record, names) {
 
 /*
 =========================================================
-FRAGE / ANTWORT
+FRAGE FINDEN
 =========================================================
 */
 
@@ -201,6 +274,12 @@ function findQuestion(record) {
 }
 
 
+/*
+=========================================================
+ANTWORT FINDEN
+=========================================================
+*/
+
 function findAnswer(record) {
 
   return findFieldRecursive(
@@ -220,7 +299,7 @@ function findAnswer(record) {
 
 /*
 =========================================================
-ALLE JSON-DATEIEN LADEN
+ALLE JSON-DATEIEN FINDEN
 =========================================================
 */
 
@@ -228,17 +307,26 @@ function listJsonFiles(directory) {
 
   const files = [];
 
+
   if (!fs.existsSync(directory)) {
+
     return files;
+
   }
+
+
+  const entries =
+    fs.readdirSync(
+      directory,
+      {
+        withFileTypes: true
+      }
+    );
 
 
   for (
     const entry
-    of fs.readdirSync(
-      directory,
-      { withFileTypes: true }
-    )
+    of entries
   ) {
 
     const fullPath =
@@ -248,20 +336,36 @@ function listJsonFiles(directory) {
       );
 
 
+    /*
+    Unterordner
+    */
+
     if (entry.isDirectory()) {
 
       files.push(
-        ...listJsonFiles(fullPath)
+        ...listJsonFiles(
+          fullPath
+        )
       );
 
+      continue;
     }
 
-    else if (
+
+    /*
+    JSON-Datei
+    */
+
+    if (
       entry.isFile() &&
-      entry.name.toLowerCase().endsWith(".json")
+      entry.name
+        .toLowerCase()
+        .endsWith(".json")
     ) {
 
-      files.push(fullPath);
+      files.push(
+        fullPath
+      );
 
     }
   }
@@ -283,17 +387,33 @@ function addDocument(
   arrayIndex = null
 ) {
 
+  /*
+  Alle JSON-Werte auslesen
+  */
+
   const fields =
     flattenJson(data);
 
+
+  /*
+  Frage finden
+  */
 
   const question =
     findQuestion(data);
 
 
+  /*
+  Antwort finden
+  */
+
   const answer =
     findAnswer(data);
 
+
+  /*
+  Suchtext bauen
+  */
 
   let searchText =
     fields
@@ -304,15 +424,21 @@ function addDocument(
 
 
   /*
-    Frage doppelt gewichten
+  Wenn eine Frage vorhanden ist,
+  wird sie stärker gewichtet.
   */
 
   if (question) {
 
     searchText =
       `${question} ${question} ${searchText}`;
+
   }
 
+
+  /*
+  TOKENIZER
+  */
 
   const tokens =
     tokenizer.unique(
@@ -321,6 +447,10 @@ function addDocument(
       )
     );
 
+
+  /*
+  Datensatz speichern
+  */
 
   documents.push({
 
@@ -333,6 +463,8 @@ function addDocument(
     arrayIndex,
 
     data,
+
+    fields,
 
     question,
 
@@ -347,12 +479,13 @@ function addDocument(
       new Map()
 
   });
+
 }
 
 
 /*
 =========================================================
-DATEN LADEN
+ALLE DATEN LADEN
 =========================================================
 */
 
@@ -360,13 +493,37 @@ function loadData() {
 
   documents = [];
 
+
+  if (!fs.existsSync(DATA_DIR)) {
+
+    fs.mkdirSync(
+      DATA_DIR,
+      {
+        recursive: true
+      }
+    );
+
+    console.log(
+      "[WARNUNG] DATEN-Ordner wurde erstellt."
+    );
+
+  }
+
+
   const files =
     listJsonFiles(
       DATA_DIR
     );
 
 
-  for (const file of files) {
+  /*
+  Jede JSON-Datei laden
+  */
+
+  for (
+    const file
+    of files
+  ) {
 
     try {
 
@@ -380,6 +537,11 @@ function loadData() {
       const data =
         JSON.parse(raw);
 
+
+      /*
+      JSON-Array:
+      jeder Eintrag = eigener Datensatz
+      */
 
       if (Array.isArray(data)) {
 
@@ -395,7 +557,14 @@ function loadData() {
           }
         );
 
-      } else {
+      }
+
+
+      /*
+      Normales JSON-Objekt
+      */
+
+      else {
 
         addDocument(
           file,
@@ -406,6 +575,7 @@ function loadData() {
 
     }
 
+
     catch (error) {
 
       console.error(
@@ -414,8 +584,13 @@ function loadData() {
       );
 
     }
+
   }
 
+
+  /*
+  IDF neu berechnen
+  */
 
   buildIdf();
 
@@ -424,9 +599,11 @@ function loadData() {
     `[START] ${files.length} JSON-Dateien gefunden.`
   );
 
+
   console.log(
     `[START] ${documents.length} Datensätze geladen.`
   );
+
 }
 
 
@@ -440,11 +617,19 @@ function buildIdf() {
 
   idf = new Map();
 
+
   const documentFrequency =
     new Map();
 
 
-  for (const document of documents) {
+  /*
+  Wie oft kommt jedes Token vor?
+  */
+
+  for (
+    const document
+    of documents
+  ) {
 
     const unique =
       new Set(
@@ -452,14 +637,20 @@ function buildIdf() {
       );
 
 
-    for (const token of unique) {
+    for (
+      const token
+      of unique
+    ) {
 
       documentFrequency.set(
         token,
-        (documentFrequency.get(token) || 0) + 1
+        (
+          documentFrequency.get(token) || 0
+        ) + 1
       );
 
     }
+
   }
 
 
@@ -470,6 +661,10 @@ function buildIdf() {
     );
 
 
+  /*
+  IDF
+  */
+
   for (
     const [
       token,
@@ -478,17 +673,29 @@ function buildIdf() {
     of documentFrequency
   ) {
 
-    idf.set(
-      token,
+    const value =
       Math.log(
         (1 + documentCount) /
         (1 + frequency)
-      ) + 1
+      ) + 1;
+
+
+    idf.set(
+      token,
+      value
     );
+
   }
 
 
-  for (const document of documents) {
+  /*
+  Vektoren vorberechnen
+  */
+
+  for (
+    const document
+    of documents
+  ) {
 
     document.vector =
       vectorize(
@@ -496,19 +703,25 @@ function buildIdf() {
       );
 
   }
+
 }
 
 
 /*
 =========================================================
-VEKTOR
+TOKEN-VEKTOR
 =========================================================
 */
 
 function vectorize(tokens) {
 
-  if (!tokens.length) {
+  if (
+    !tokens ||
+    tokens.length === 0
+  ) {
+
     return new Map();
+
   }
 
 
@@ -516,11 +729,20 @@ function vectorize(tokens) {
     new Map();
 
 
-  for (const token of tokens) {
+  /*
+  Anzahl jedes Tokens
+  */
+
+  for (
+    const token
+    of tokens
+  ) {
 
     counts.set(
       token,
-      (counts.get(token) || 0) + 1
+      (
+        counts.get(token) || 0
+      ) + 1
     );
 
   }
@@ -534,8 +756,15 @@ function vectorize(tokens) {
     new Map();
 
 
+  /*
+  TF-IDF
+  */
+
   for (
-    const [token, count]
+    const [
+      token,
+      count
+    ]
     of counts
   ) {
 
@@ -543,9 +772,12 @@ function vectorize(tokens) {
       count / total;
 
 
+    const tokenIdf =
+      idf.get(token) || 1;
+
+
     const weight =
-      tf *
-      (idf.get(token) || 1);
+      tf * tokenIdf;
 
 
     vector.set(
@@ -566,19 +798,36 @@ COSINE SIMILARITY
 =========================================================
 */
 
-function cosineSimilarity(a, b) {
+function cosineSimilarity(
+  a,
+  b
+) {
 
-  if (!a.size || !b.size) {
+  if (
+    !a.size ||
+    !b.size
+  ) {
+
     return 0;
+
   }
 
 
   let dot = 0;
+
   let normA = 0;
+
   let normB = 0;
 
 
-  for (const value of a.values()) {
+  /*
+  Norm A
+  */
+
+  for (
+    const value
+    of a.values()
+  ) {
 
     normA +=
       value * value;
@@ -586,7 +835,14 @@ function cosineSimilarity(a, b) {
   }
 
 
-  for (const value of b.values()) {
+  /*
+  Norm B
+  */
+
+  for (
+    const value
+    of b.values()
+  ) {
 
     normB +=
       value * value;
@@ -594,14 +850,23 @@ function cosineSimilarity(a, b) {
   }
 
 
+  /*
+  Skalarprodukt
+  */
+
   for (
-    const [token, value]
+    const [
+      token,
+      value
+    ]
     of a
   ) {
 
     dot +=
       value *
-      (b.get(token) || 0);
+      (
+        b.get(token) || 0
+      );
 
   }
 
@@ -612,6 +877,7 @@ function cosineSimilarity(a, b) {
   ) {
 
     return 0;
+
   }
 
 
@@ -622,12 +888,13 @@ function cosineSimilarity(a, b) {
       Math.sqrt(normB)
     )
   );
+
 }
 
 
 /*
 =========================================================
-ÄHNLICHKEIT
+ÄHNLICHKEIT BERECHNEN
 =========================================================
 */
 
@@ -637,11 +904,19 @@ function calculateSimilarity(
   document
 ) {
 
+  /*
+  Nachricht vektorisieren
+  */
+
   const queryVector =
     vectorize(
       queryTokens
     );
 
+
+  /*
+  Grundwert
+  */
 
   let score =
     cosineSimilarity(
@@ -649,6 +924,10 @@ function calculateSimilarity(
       document.vector
     );
 
+
+  /*
+  Normalisierte Texte
+  */
 
   const query =
     normalizeText(
@@ -663,7 +942,9 @@ function calculateSimilarity(
 
 
   /*
-    Exakte Frage
+  -------------------------------------------------------
+  EXAKTE FRAGE
+  -------------------------------------------------------
   */
 
   if (document.question) {
@@ -674,11 +955,22 @@ function calculateSimilarity(
       );
 
 
-    if (question === query) {
+    /*
+    Vollkommen gleiche Frage
+    */
 
-      score += 2;
+    if (
+      question === query
+    ) {
+
+      score += 2.0;
 
     }
+
+
+    /*
+    Frage enthält Nachricht
+    */
 
     else if (
       question.includes(query) ||
@@ -688,11 +980,14 @@ function calculateSimilarity(
       score += 0.7;
 
     }
+
   }
 
 
   /*
-    Exakter Text
+  -------------------------------------------------------
+  GANZER TEXT
+  -------------------------------------------------------
   */
 
   if (
@@ -706,7 +1001,9 @@ function calculateSimilarity(
 
 
   /*
-    Gemeinsame Token
+  -------------------------------------------------------
+  GEMEINSAME TOKEN
+  -------------------------------------------------------
   */
 
   const documentTokens =
@@ -719,7 +1016,10 @@ function calculateSimilarity(
     0;
 
 
-  for (const token of queryTokens) {
+  for (
+    const token
+    of queryTokens
+  ) {
 
     if (
       documentTokens.has(token)
@@ -728,43 +1028,27 @@ function calculateSimilarity(
       common++;
 
     }
+
   }
 
+
+  /*
+  Jedes gemeinsame Token gibt
+  einen kleinen Zusatzwert.
+  */
 
   score +=
     common * 0.04;
 
 
   return score;
+
 }
 
 
 /*
 =========================================================
-ANTWORT AUS DATEN
-=========================================================
-*/
-
-function getAnswer(document) {
-
-  if (document.answer) {
-
-    return document.answer;
-
-  }
-
-
-  return JSON.stringify(
-    document.data,
-    null,
-    2
-  );
-}
-
-
-/*
-=========================================================
-SUCHEN
+DATENBANK DURCHSUCHEN
 =========================================================
 */
 
@@ -777,8 +1061,8 @@ function search(
 
 
   /*
-    Tokenizer aus dem Browser
-    übernehmen.
+  Tokens aus dem Browser übernehmen,
+  wenn sie vorhanden sind.
   */
 
   if (
@@ -789,10 +1073,19 @@ function search(
     tokens =
       clientTokens
         .map(String)
-        .map(normalizeText)
+        .map(
+          normalizeText
+        )
         .filter(Boolean);
 
-  } else {
+  }
+
+
+  /*
+  Sonst Tokenizer direkt benutzen.
+  */
+
+  else {
 
     tokens =
       tokenizer.unique(
@@ -800,23 +1093,30 @@ function search(
           message
         )
       );
+
   }
 
 
+  /*
+  JEDEN Datensatz bewerten
+  */
+
   const ranked =
     documents
-      .map(document => ({
+      .map(
+        document => ({
 
-        document,
+          document,
 
-        score:
-          calculateSimilarity(
-            message,
-            tokens,
-            document
-          )
+          score:
+            calculateSimilarity(
+              message,
+              tokens,
+              document
+            )
 
-      }))
+        })
+      )
       .sort(
         (a, b) =>
           b.score - a.score
@@ -824,15 +1124,19 @@ function search(
 
 
   return {
+
     tokens,
+
     ranked
+
   };
+
 }
 
 
 /*
 =========================================================
-JSON SENDEN
+JSON AN CLIENT SENDEN
 =========================================================
 */
 
@@ -843,32 +1147,43 @@ function sendJson(
 ) {
 
   const body =
-    JSON.stringify(data);
+    JSON.stringify(
+      data
+    );
 
 
   response.writeHead(
     status,
     {
+
       "Content-Type":
         "application/json; charset=utf-8",
 
       "Content-Length":
-        Buffer.byteLength(body)
+        Buffer.byteLength(
+          body
+        )
+
     }
   );
 
 
-  response.end(body);
+  response.end(
+    body
+  );
+
 }
 
 
 /*
 =========================================================
-BODY LESEN
+REQUEST BODY LESEN
 =========================================================
 */
 
-function readBody(request) {
+function readBody(
+  request
+) {
 
   return new Promise(
     (resolve, reject) => {
@@ -883,9 +1198,12 @@ function readBody(request) {
           body += chunk;
 
 
+          /*
+          Maximal 1 MB
+          */
+
           if (
-            body.length >
-            1000000
+            body.length > 1000000
           ) {
 
             reject(
@@ -894,26 +1212,41 @@ function readBody(request) {
               )
             );
 
+
             request.destroy();
 
           }
+
         }
       );
 
 
       request.on(
         "end",
-        () => resolve(body)
+        () => {
+
+          resolve(
+            body
+          );
+
+        }
       );
 
 
       request.on(
         "error",
-        reject
+        error => {
+
+          reject(
+            error
+          );
+
+        }
       );
 
     }
   );
+
 }
 
 
@@ -925,7 +1258,10 @@ HTTP SERVER
 
 const server =
   http.createServer(
-    async (request, response) => {
+    async (
+      request,
+      response
+    ) => {
 
       try {
 
@@ -937,15 +1273,40 @@ const server =
 
 
         /*
-        ================================================
-        INDEX.HTML
-        ================================================
+        =================================================
+        STARTSEITE
+        =================================================
         */
 
         if (
           request.method === "GET" &&
           parsed.pathname === "/"
         ) {
+
+          if (
+            !fs.existsSync(
+              INDEX_FILE
+            )
+          ) {
+
+            response.writeHead(
+              404,
+              {
+                "Content-Type":
+                  "text/plain; charset=utf-8"
+              }
+            );
+
+
+            response.end(
+              "index.html fehlt."
+            );
+
+
+            return;
+
+          }
+
 
           const html =
             fs.readFileSync(
@@ -956,22 +1317,28 @@ const server =
           response.writeHead(
             200,
             {
+
               "Content-Type":
                 "text/html; charset=utf-8"
+
             }
           );
 
 
-          response.end(html);
+          response.end(
+            html
+          );
+
 
           return;
+
         }
 
 
         /*
-        ================================================
-        HEALTH
-        ================================================
+        =================================================
+        HEALTH CHECK
+        =================================================
         */
 
         if (
@@ -983,20 +1350,67 @@ const server =
             response,
             200,
             {
+
               ok: true,
+
               documents:
-                documents.length
+                documents.length,
+
+              dataFolder:
+                "DATEN",
+
+              tokenizer:
+                "aktiv"
+
             }
           );
 
+
           return;
+
         }
 
 
         /*
-        ================================================
-        CHAT
-        ================================================
+        =================================================
+        NEU LADEN
+        =================================================
+        */
+
+        if (
+          request.method === "POST" &&
+          parsed.pathname === "/api/reload"
+        ) {
+
+          loadData();
+
+
+          sendJson(
+            response,
+            200,
+            {
+
+              ok: true,
+
+              documents:
+                documents.length,
+
+              message:
+                "Daten neu geladen."
+
+            }
+          );
+
+
+          return;
+
+        }
+
+
+        /*
+        =================================================
+        CHAT API
+        =================================================
         */
 
         if (
@@ -1013,12 +1427,19 @@ const server =
           let payload;
 
 
+          /*
+          JSON des Requests lesen
+          */
+
           try {
 
             payload =
-              JSON.parse(raw);
+              JSON.parse(
+                raw
+              );
 
           }
+
 
           catch {
 
@@ -1026,14 +1447,22 @@ const server =
               response,
               400,
               {
+
                 error:
-                  "Ungültiges JSON."
+                  "Ungültiges Request-JSON."
+
               }
             );
 
+
             return;
+
           }
 
+
+          /*
+          Nachricht
+          */
 
           const message =
             String(
@@ -1041,20 +1470,32 @@ const server =
             ).trim();
 
 
+          /*
+          Keine Nachricht
+          */
+
           if (!message) {
 
             sendJson(
               response,
               400,
               {
+
                 error:
-                  "Keine Nachricht."
+                  "Keine Nachricht übergeben."
+
               }
             );
 
+
             return;
+
           }
 
+
+          /*
+          Keine Daten
+          */
 
           if (
             documents.length === 0
@@ -1064,14 +1505,24 @@ const server =
               response,
               503,
               {
+
                 error:
                   "Keine JSON-Dateien im Ordner DATEN gefunden."
+
               }
             );
 
+
             return;
+
           }
 
+
+          /*
+          =================================================
+          SUCHE
+          =================================================
+          */
 
           const result =
             search(
@@ -1080,13 +1531,27 @@ const server =
             );
 
 
+          /*
+          Bester Treffer
+          */
+
           const best =
             result.ranked[0];
 
 
+          /*
+          Mindestwert
+          */
+
           const MINIMUM_SCORE =
             0.05;
 
+
+          /*
+          =================================================
+          KEIN TREFFER
+          =================================================
+          */
 
           if (
             !best ||
@@ -1099,22 +1564,34 @@ const server =
               {
 
                 answer:
-                  "Dazu habe ich in meinen DATEN keine passende Information gefunden.",
+                  "Dazu habe ich in meiner Datenbasis keine ausreichenden Informationen gefunden.",
 
-                matches: 0,
+                matches:
+                  0,
 
                 documents:
                   documents.length,
 
                 tokens:
-                  result.tokens
+                  result.tokens,
+
+                confidence:
+                  0
 
               }
             );
 
+
             return;
+
           }
 
+
+          /*
+          =================================================
+          RELEVANTE TREFFER
+          =================================================
+          */
 
           const top =
             result.ranked
@@ -1126,24 +1603,72 @@ const server =
                     best.score * 0.6
                   )
               )
-              .slice(0, 5);
+              .slice(
+                0,
+                5
+              );
 
+
+          /*
+          =================================================
+          NEUE ANTWORT GENERIEREN
+          =================================================
+
+          generator.js bekommt die relevanten
+          Datensätze und erstellt daraus eine neue Antwort.
+          */
+
+          let answer;
+
+
+          try {
+
+            answer =
+              generateAnswer(
+                message,
+                top
+              );
+
+          }
+
+
+          catch (error) {
+
+            console.error(
+              "[GENERATOR FEHLER]",
+              error
+            );
+
+
+            answer =
+              "Ich habe passende Informationen gefunden, konnte daraus aber keine Antwort erzeugen.";
+
+          }
+
+
+          /*
+          =================================================
+          ANTWORT
+          =================================================
+          */
 
           sendJson(
             response,
             200,
             {
 
-              answer:
-                getAnswer(
-                  best.document
-                ),
+              answer,
 
               matches:
                 top.length,
 
               documents:
                 documents.length,
+
+              /*
+              DAS sind jetzt die echten Tokens.
+              Keine Stopwords werden entfernt.
+              */
 
               tokens:
                 result.tokens,
@@ -1157,37 +1682,42 @@ const server =
                 ),
 
               alternatives:
-                top.map(item => ({
+                top.map(
+                  item => ({
 
-                  file:
-                    item.document.file,
+                    file:
+                      item.document.file,
 
-                  score:
-                    Number(
-                      item.score.toFixed(4)
-                    )
+                    score:
+                      Number(
+                        item.score.toFixed(4)
+                      )
 
-                }))
+                  })
+                )
 
             }
           );
 
 
           return;
+
         }
 
 
         /*
-        ================================================
+        =================================================
         404
-        ================================================
+        =================================================
         */
 
         response.writeHead(
           404,
           {
+
             "Content-Type":
               "text/plain; charset=utf-8"
+
           }
         );
 
@@ -1198,17 +1728,23 @@ const server =
 
       }
 
+
       catch (error) {
 
-        console.error(error);
+        console.error(
+          "[SERVER FEHLER]",
+          error
+        );
 
 
         sendJson(
           response,
           500,
           {
+
             error:
               "Interner Serverfehler."
+
           }
         );
 
@@ -1220,12 +1756,18 @@ const server =
 
 /*
 =========================================================
-START
+DATEN LADEN
 =========================================================
 */
 
 loadData();
 
+
+/*
+=========================================================
+SERVER STARTEN
+=========================================================
+*/
 
 server.listen(
   PORT,
@@ -1233,15 +1775,31 @@ server.listen(
   () => {
 
     console.log(
-      `[START] LUMORA läuft auf Port ${PORT}`
+      "=========================================="
     );
 
     console.log(
-      `[START] Tokenizer geladen.`
+      "LUMORA gestartet"
     );
 
     console.log(
-      `[START] ${documents.length} Datensätze bereit.`
+      `Port: ${PORT}`
+    );
+
+    console.log(
+      `JSON-Daten: ${documents.length}`
+    );
+
+    console.log(
+      "Tokenizer: aktiv"
+    );
+
+    console.log(
+      "Generator: aktiv"
+    );
+
+    console.log(
+      "=========================================="
     );
 
   }
