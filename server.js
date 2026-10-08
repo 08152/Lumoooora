@@ -1,18 +1,26 @@
+"use strict";
+
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
 
+const {
+  Tokenizer,
+  normalizeText,
+  tokenize
+} = require("./tokenizer");
 
-/* =========================================================
-   KONFIGURATION
-   ========================================================= */
 
-const PORT =
-  process.env.PORT || 10000;
+/*
+=========================================================
+KONFIGURATION
+=========================================================
+*/
 
-const ROOT =
-  __dirname;
+const PORT = process.env.PORT || 10000;
+
+const ROOT = __dirname;
 
 const DATA_DIR =
   path.join(ROOT, "DATEN");
@@ -21,130 +29,17 @@ const INDEX_FILE =
   path.join(ROOT, "index.html");
 
 
-/* =========================================================
-   STOPWORDS
-   ========================================================= */
-
-const STOPWORDS = new Set([
-  "aber",
-  "alle",
-  "als",
-  "also",
-  "am",
-  "an",
-  "auch",
-  "auf",
-  "aus",
-  "bei",
-  "bin",
-  "bis",
-  "bist",
-  "da",
-  "dabei",
-  "damit",
-  "dann",
-  "das",
-  "dass",
-  "dein",
-  "dem",
-  "den",
-  "der",
-  "des",
-  "die",
-  "dir",
-  "doch",
-  "du",
-  "ein",
-  "eine",
-  "einem",
-  "einen",
-  "einer",
-  "eines",
-  "er",
-  "es",
-  "für",
-  "ganz",
-  "hat",
-  "hast",
-  "hier",
-  "ich",
-  "im",
-  "in",
-  "ist",
-  "ja",
-  "kann",
-  "kein",
-  "mit",
-  "nach",
-  "nicht",
-  "noch",
-  "nur",
-  "oder",
-  "sie",
-  "sind",
-  "so",
-  "und",
-  "uns",
-  "vom",
-  "von",
-  "vor",
-  "war",
-  "was",
-  "wie",
-  "wir",
-  "zu",
-  "zum",
-  "zur"
-]);
-
-
-/* =========================================================
-   SPEICHER
-   ========================================================= */
+const tokenizer = new Tokenizer();
 
 let documents = [];
 let idf = new Map();
 
 
-/* =========================================================
-   NORMALISIERUNG
-   ========================================================= */
-
-function normalizeText(text) {
-
-  return String(text)
-    .toLowerCase()
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-}
-
-
-/* =========================================================
-   TOKENIZER
-   ========================================================= */
-
-function tokenize(text) {
-
-  return normalizeText(text)
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter(word => word.length >= 2)
-    .filter(word => !STOPWORDS.has(word));
-
-}
-
-
-/* =========================================================
-   JSON FLACH MACHEN
-   ========================================================= */
+/*
+=========================================================
+JSON REKURSIV DURCHSUCHEN
+=========================================================
+*/
 
 function flattenJson(value, prefix = "") {
 
@@ -156,24 +51,22 @@ function flattenJson(value, prefix = "") {
     !Array.isArray(value)
   ) {
 
-    for (
-      const [key, child]
-      of Object.entries(value)
-    ) {
+    for (const [key, child] of Object.entries(value)) {
 
-      const next =
+      const nextPrefix =
         prefix
           ? `${prefix}.${key}`
           : key;
 
       result.push(
-        ...flattenJson(child, next)
+        ...flattenJson(
+          child,
+          nextPrefix
+        )
       );
-
     }
 
     return result;
-
   }
 
 
@@ -200,26 +93,22 @@ function flattenJson(value, prefix = "") {
   ]);
 
   return result;
-
 }
 
 
-/* =========================================================
-   FELDER FINDEN
-   ========================================================= */
+/*
+=========================================================
+FELD REKURSIV SUCHEN
+=========================================================
+*/
 
-function findFieldRecursive(
-  record,
-  names
-) {
+function findFieldRecursive(record, names) {
 
   if (
     !record ||
     typeof record !== "object"
   ) {
-
     return null;
-
   }
 
   const wanted =
@@ -247,9 +136,7 @@ function findFieldRecursive(
       ) {
 
         return String(value);
-
       }
-
     }
 
 
@@ -267,17 +154,11 @@ function findFieldRecursive(
       if (found !== null) {
         return found;
       }
-
     }
 
-  }
+  } else {
 
-  else {
-
-    for (
-      const value
-      of record
-    ) {
+    for (const value of record) {
 
       const found =
         findFieldRecursive(
@@ -288,16 +169,19 @@ function findFieldRecursive(
       if (found !== null) {
         return found;
       }
-
     }
-
   }
 
 
   return null;
-
 }
 
+
+/*
+=========================================================
+FRAGE / ANTWORT
+=========================================================
+*/
 
 function findQuestion(record) {
 
@@ -314,7 +198,6 @@ function findQuestion(record) {
       "nachricht"
     ]
   );
-
 }
 
 
@@ -332,13 +215,14 @@ function findAnswer(record) {
       "text"
     ]
   );
-
 }
 
 
-/* =========================================================
-   ALLE JSON-DATEIEN FINDEN
-   ========================================================= */
+/*
+=========================================================
+ALLE JSON-DATEIEN LADEN
+=========================================================
+*/
 
 function listJsonFiles(directory) {
 
@@ -372,29 +256,26 @@ function listJsonFiles(directory) {
 
     }
 
-
     else if (
       entry.isFile() &&
-      entry.name
-        .toLowerCase()
-        .endsWith(".json")
+      entry.name.toLowerCase().endsWith(".json")
     ) {
 
       files.push(fullPath);
 
     }
-
   }
 
 
   return files;
-
 }
 
 
-/* =========================================================
-   DATENSATZ HINZUFÜGEN
-   ========================================================= */
+/*
+=========================================================
+DATENSATZ HINZUFÜGEN
+=========================================================
+*/
 
 function addDocument(
   filePath,
@@ -405,8 +286,10 @@ function addDocument(
   const fields =
     flattenJson(data);
 
+
   const question =
     findQuestion(data);
+
 
   const answer =
     findAnswer(data);
@@ -421,16 +304,22 @@ function addDocument(
 
 
   /*
-    Wenn eine Frage existiert,
-    geben wir ihr mehr Gewicht.
+    Frage doppelt gewichten
   */
 
   if (question) {
 
     searchText =
       `${question} ${question} ${searchText}`;
-
   }
+
+
+  const tokens =
+    tokenizer.unique(
+      tokenizer.tokenize(
+        searchText
+      )
+    );
 
 
   documents.push({
@@ -452,33 +341,32 @@ function addDocument(
     text:
       searchText,
 
-    tokens:
-      tokenize(searchText),
+    tokens,
 
     vector:
       new Map()
 
   });
-
 }
 
 
-/* =========================================================
-   DATEN LADEN
-   ========================================================= */
+/*
+=========================================================
+DATEN LADEN
+=========================================================
+*/
 
 function loadData() {
 
   documents = [];
 
   const files =
-    listJsonFiles(DATA_DIR);
+    listJsonFiles(
+      DATA_DIR
+    );
 
 
-  for (
-    const file
-    of files
-  ) {
+  for (const file of files) {
 
     try {
 
@@ -488,14 +376,10 @@ function loadData() {
           "utf8"
         );
 
+
       const data =
         JSON.parse(raw);
 
-
-      /*
-        JSON-Array:
-        Jeder Eintrag wird ein eigener Datensatz.
-      */
 
       if (Array.isArray(data)) {
 
@@ -511,9 +395,7 @@ function loadData() {
           }
         );
 
-      }
-
-      else {
+      } else {
 
         addDocument(
           file,
@@ -532,7 +414,6 @@ function loadData() {
       );
 
     }
-
   }
 
 
@@ -540,19 +421,20 @@ function loadData() {
 
 
   console.log(
-    `[START] ${files.length} JSON-Datei(en) gefunden.`
+    `[START] ${files.length} JSON-Dateien gefunden.`
   );
 
   console.log(
-    `[START] ${documents.length} Datensatz/Datensätze geladen.`
+    `[START] ${documents.length} Datensätze geladen.`
   );
-
 }
 
 
-/* =========================================================
-   IDF
-   ========================================================= */
+/*
+=========================================================
+IDF BERECHNEN
+=========================================================
+*/
 
 function buildIdf() {
 
@@ -562,10 +444,7 @@ function buildIdf() {
     new Map();
 
 
-  for (
-    const document
-    of documents
-  ) {
+  for (const document of documents) {
 
     const unique =
       new Set(
@@ -573,10 +452,7 @@ function buildIdf() {
       );
 
 
-    for (
-      const token
-      of unique
-    ) {
+    for (const token of unique) {
 
       documentFrequency.set(
         token,
@@ -584,11 +460,10 @@ function buildIdf() {
       );
 
     }
-
   }
 
 
-  const count =
+  const documentCount =
     Math.max(
       documents.length,
       1
@@ -596,25 +471,24 @@ function buildIdf() {
 
 
   for (
-    const [token, frequency]
+    const [
+      token,
+      frequency
+    ]
     of documentFrequency
   ) {
 
     idf.set(
       token,
       Math.log(
-        (1 + count) /
+        (1 + documentCount) /
         (1 + frequency)
       ) + 1
     );
-
   }
 
 
-  for (
-    const document
-    of documents
-  ) {
+  for (const document of documents) {
 
     document.vector =
       vectorize(
@@ -622,13 +496,14 @@ function buildIdf() {
       );
 
   }
-
 }
 
 
-/* =========================================================
-   VEKTOR
-   ========================================================= */
+/*
+=========================================================
+VEKTOR
+=========================================================
+*/
 
 function vectorize(tokens) {
 
@@ -641,10 +516,7 @@ function vectorize(tokens) {
     new Map();
 
 
-  for (
-    const token
-    of tokens
-  ) {
+  for (const token of tokens) {
 
     counts.set(
       token,
@@ -657,6 +529,7 @@ function vectorize(tokens) {
   const total =
     tokens.length;
 
+
   const vector =
     new Map();
 
@@ -668,6 +541,7 @@ function vectorize(tokens) {
 
     const tf =
       count / total;
+
 
     const weight =
       tf *
@@ -683,26 +557,19 @@ function vectorize(tokens) {
 
 
   return vector;
-
 }
 
 
-/* =========================================================
-   COSINE SIMILARITY
-   ========================================================= */
+/*
+=========================================================
+COSINE SIMILARITY
+=========================================================
+*/
 
-function cosineSimilarity(
-  a,
-  b
-) {
+function cosineSimilarity(a, b) {
 
-  if (
-    !a.size ||
-    !b.size
-  ) {
-
+  if (!a.size || !b.size) {
     return 0;
-
   }
 
 
@@ -711,10 +578,7 @@ function cosineSimilarity(
   let normB = 0;
 
 
-  for (
-    const value
-    of a.values()
-  ) {
+  for (const value of a.values()) {
 
     normA +=
       value * value;
@@ -722,10 +586,7 @@ function cosineSimilarity(
   }
 
 
-  for (
-    const value
-    of b.values()
-  ) {
+  for (const value of b.values()) {
 
     normB +=
       value * value;
@@ -751,7 +612,6 @@ function cosineSimilarity(
   ) {
 
     return 0;
-
   }
 
 
@@ -762,22 +622,25 @@ function cosineSimilarity(
       Math.sqrt(normB)
     )
   );
-
 }
 
 
-/* =========================================================
-   ÄHNLICHKEIT
-   ========================================================= */
+/*
+=========================================================
+ÄHNLICHKEIT
+=========================================================
+*/
 
 function calculateSimilarity(
-  query,
+  message,
   queryTokens,
   document
 ) {
 
   const queryVector =
-    vectorize(queryTokens);
+    vectorize(
+      queryTokens
+    );
 
 
   let score =
@@ -787,11 +650,13 @@ function calculateSimilarity(
     );
 
 
-  const normalizedQuery =
-    normalizeText(query);
+  const query =
+    normalizeText(
+      message
+    );
 
 
-  const normalizedDocument =
+  const documentText =
     normalizeText(
       document.text
     );
@@ -803,46 +668,36 @@ function calculateSimilarity(
 
   if (document.question) {
 
-    const normalizedQuestion =
+    const question =
       normalizeText(
         document.question
       );
 
 
-    if (
-      normalizedQuestion ===
-      normalizedQuery
-    ) {
+    if (question === query) {
 
       score += 2;
 
     }
 
     else if (
-      normalizedQuestion.includes(
-        normalizedQuery
-      ) ||
-      normalizedQuery.includes(
-        normalizedQuestion
-      )
+      question.includes(query) ||
+      query.includes(question)
     ) {
 
       score += 0.7;
 
     }
-
   }
 
 
   /*
-    Gesamten Text prüfen
+    Exakter Text
   */
 
   if (
-    normalizedQuery.length >= 4 &&
-    normalizedDocument.includes(
-      normalizedQuery
-    )
+    query.length >= 4 &&
+    documentText.includes(query)
   ) {
 
     score += 0.35;
@@ -860,13 +715,11 @@ function calculateSimilarity(
     );
 
 
-  let common = 0;
+  let common =
+    0;
 
 
-  for (
-    const token
-    of queryTokens
-  ) {
+  for (const token of queryTokens) {
 
     if (
       documentTokens.has(token)
@@ -875,7 +728,6 @@ function calculateSimilarity(
       common++;
 
     }
-
   }
 
 
@@ -884,20 +736,16 @@ function calculateSimilarity(
 
 
   return score;
-
 }
 
 
-/* =========================================================
-   ANTWORT
-   ========================================================= */
+/*
+=========================================================
+ANTWORT AUS DATEN
+=========================================================
+*/
 
 function getAnswer(document) {
-
-  /*
-    Wenn ein Antwortfeld existiert,
-    verwenden wir es.
-  */
 
   if (document.answer) {
 
@@ -906,23 +754,19 @@ function getAnswer(document) {
   }
 
 
-  /*
-    Falls kein Antwortfeld vorhanden ist,
-    wird die komplette JSON-Struktur ausgegeben.
-  */
-
   return JSON.stringify(
     document.data,
     null,
     2
   );
-
 }
 
 
-/* =========================================================
-   SUCHE
-   ========================================================= */
+/*
+=========================================================
+SUCHEN
+=========================================================
+*/
 
 function search(
   message,
@@ -933,8 +777,8 @@ function search(
 
 
   /*
-    Tokenizer aus HTML übernehmen,
-    sofern vorhanden.
+    Tokenizer aus dem Browser
+    übernehmen.
   */
 
   if (
@@ -948,13 +792,14 @@ function search(
         .map(normalizeText)
         .filter(Boolean);
 
-  }
-
-  else {
+  } else {
 
     tokens =
-      tokenize(message);
-
+      tokenizer.unique(
+        tokenizer.tokenize(
+          message
+        )
+      );
   }
 
 
@@ -982,13 +827,14 @@ function search(
     tokens,
     ranked
   };
-
 }
 
 
-/* =========================================================
-   JSON ANTWORT
-   ========================================================= */
+/*
+=========================================================
+JSON SENDEN
+=========================================================
+*/
 
 function sendJson(
   response,
@@ -1013,13 +859,14 @@ function sendJson(
 
 
   response.end(body);
-
 }
 
 
-/* =========================================================
-   REQUEST BODY
-   ========================================================= */
+/*
+=========================================================
+BODY LESEN
+=========================================================
+*/
 
 function readBody(request) {
 
@@ -1038,7 +885,7 @@ function readBody(request) {
 
           if (
             body.length >
-            1_000_000
+            1000000
           ) {
 
             reject(
@@ -1050,7 +897,6 @@ function readBody(request) {
             request.destroy();
 
           }
-
         }
       );
 
@@ -1068,13 +914,14 @@ function readBody(request) {
 
     }
   );
-
 }
 
 
-/* =========================================================
-   SERVER
-   ========================================================= */
+/*
+=========================================================
+HTTP SERVER
+=========================================================
+*/
 
 const server =
   http.createServer(
@@ -1090,7 +937,9 @@ const server =
 
 
         /*
-          Startseite
+        ================================================
+        INDEX.HTML
+        ================================================
         */
 
         if (
@@ -1116,12 +965,13 @@ const server =
           response.end(html);
 
           return;
-
         }
 
 
         /*
-          Health Check
+        ================================================
+        HEALTH
+        ================================================
         */
 
         if (
@@ -1140,12 +990,13 @@ const server =
           );
 
           return;
-
         }
 
 
         /*
-          KI API
+        ================================================
+        CHAT
+        ================================================
         */
 
         if (
@@ -1181,7 +1032,6 @@ const server =
             );
 
             return;
-
           }
 
 
@@ -1203,7 +1053,6 @@ const server =
             );
 
             return;
-
           }
 
 
@@ -1216,12 +1065,11 @@ const server =
               503,
               {
                 error:
-                  "Keine JSON-Dateien in DATEN gefunden."
+                  "Keine JSON-Dateien im Ordner DATEN gefunden."
               }
             );
 
             return;
-
           }
 
 
@@ -1236,17 +1084,13 @@ const server =
             result.ranked[0];
 
 
-          const minimumScore =
+          const MINIMUM_SCORE =
             0.05;
 
 
-          /*
-            Kein passender Datensatz
-          */
-
           if (
             !best ||
-            best.score < minimumScore
+            best.score < MINIMUM_SCORE
           ) {
 
             sendJson(
@@ -1269,13 +1113,8 @@ const server =
             );
 
             return;
-
           }
 
-
-          /*
-            Die besten Treffer
-          */
 
           const top =
             result.ranked
@@ -1283,7 +1122,7 @@ const server =
                 item =>
                   item.score >=
                   Math.max(
-                    minimumScore,
+                    MINIMUM_SCORE,
                     best.score * 0.6
                   )
               )
@@ -1335,12 +1174,13 @@ const server =
 
 
           return;
-
         }
 
 
         /*
-          404
+        ================================================
+        404
+        ================================================
         */
 
         response.writeHead(
@@ -1362,6 +1202,7 @@ const server =
 
         console.error(error);
 
+
         sendJson(
           response,
           500,
@@ -1377,9 +1218,11 @@ const server =
   );
 
 
-/* =========================================================
-   DATEN LADEN UND SERVER STARTEN
-   ========================================================= */
+/*
+=========================================================
+START
+=========================================================
+*/
 
 loadData();
 
@@ -1394,7 +1237,11 @@ server.listen(
     );
 
     console.log(
-      `[START] Datenordner: ${DATA_DIR}`
+      `[START] Tokenizer geladen.`
+    );
+
+    console.log(
+      `[START] ${documents.length} Datensätze bereit.`
     );
 
   }
