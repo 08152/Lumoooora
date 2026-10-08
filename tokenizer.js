@@ -5,82 +5,11 @@
 LUMORA TOKENIZER
 =========================================================
 
-Diese Datei ist ausschließlich für das Tokenisieren
-und Normalisieren von Text zuständig.
+Keine Stopwords.
+Jedes Wort bleibt erhalten, damit die KI möglichst viel
+Bedeutung aus der ursprünglichen Nachricht bekommt.
 =========================================================
 */
-
-const STOPWORDS = new Set([
-  "aber",
-  "alle",
-  "als",
-  "also",
-  "am",
-  "an",
-  "auch",
-  "auf",
-  "aus",
-  "bei",
-  "bin",
-  "bis",
-  "bist",
-  "da",
-  "dabei",
-  "damit",
-  "dann",
-  "das",
-  "dass",
-  "dein",
-  "dem",
-  "den",
-  "der",
-  "des",
-  "die",
-  "dir",
-  "doch",
-  "du",
-  "ein",
-  "eine",
-  "einem",
-  "einen",
-  "einer",
-  "eines",
-  "er",
-  "es",
-  "für",
-  "ganz",
-  "hat",
-  "hast",
-  "hier",
-  "ich",
-  "im",
-  "in",
-  "ist",
-  "ja",
-  "kann",
-  "kein",
-  "mit",
-  "nach",
-  "nicht",
-  "noch",
-  "nur",
-  "oder",
-  "sie",
-  "sind",
-  "so",
-  "und",
-  "uns",
-  "vom",
-  "von",
-  "vor",
-  "war",
-  "was",
-  "wie",
-  "wir",
-  "zu",
-  "zum",
-  "zur"
-]);
 
 
 /*
@@ -90,16 +19,26 @@ TEXT NORMALISIEREN
 */
 
 function normalizeText(text) {
+
   return String(text)
     .toLowerCase()
+
+    // Deutsche Umlaute vereinheitlichen
     .replace(/ä/g, "ae")
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss")
+
+    // Unicode-Zeichen vereinheitlichen
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+
+    // Satzzeichen entfernen
     .replace(/[^a-z0-9\s]/g, " ")
+
+    // Mehrere Leerzeichen zusammenfassen
     .replace(/\s+/g, " ")
+
     .trim();
 }
 
@@ -108,10 +47,28 @@ function normalizeText(text) {
 =========================================================
 TOKENISIEREN
 =========================================================
+
+WICHTIG:
+Es werden KEINE Stopwords entfernt.
+
+"Hallo wie geht es dir?"
+
+wird zu:
+
+[
+  "hallo",
+  "wie",
+  "geht",
+  "es",
+  "dir"
+]
+=========================================================
 */
 
 function tokenize(text) {
-  const normalized = normalizeText(text);
+
+  const normalized =
+    normalizeText(text);
 
   if (!normalized) {
     return [];
@@ -119,8 +76,7 @@ function tokenize(text) {
 
   return normalized
     .split(/\s+/)
-    .filter(token => token.length >= 2)
-    .filter(token => !STOPWORDS.has(token));
+    .filter(token => token.length > 0);
 }
 
 
@@ -131,7 +87,42 @@ DOPPELTE TOKEN ENTFERNEN
 */
 
 function uniqueTokens(tokens) {
+
   return [...new Set(tokens)];
+
+}
+
+
+/*
+=========================================================
+KOMPLETTE VERARBEITUNG
+=========================================================
+*/
+
+function process(text) {
+
+  const normalized =
+    normalizeText(text);
+
+  const tokens =
+    tokenize(text);
+
+  const unique =
+    uniqueTokens(tokens);
+
+  return {
+
+    original:
+      String(text),
+
+    normalized,
+
+    tokens,
+
+    unique
+
+  };
+
 }
 
 
@@ -156,16 +147,7 @@ class Tokenizer {
   }
 
   process(text) {
-    const normalized = this.normalize(text);
-    const tokens = this.tokenize(text);
-    const unique = this.unique(tokens);
-
-    return {
-      original: String(text),
-      normalized,
-      tokens,
-      unique
-    };
+    return process(text);
   }
 
 }
@@ -178,8 +160,15 @@ EXPORT
 */
 
 module.exports = {
+
   Tokenizer,
+
   normalizeText,
+
   tokenize,
-  uniqueTokens
+
+  uniqueTokens,
+
+  process
+
 };
