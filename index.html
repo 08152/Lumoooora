@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LUMORA</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #101318;
+      color: white;
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .app {
+      width: min(900px, 94vw);
+    }
+
+    .box {
+      background: #181d24;
+      border: 1px solid #2c3440;
+      border-radius: 18px;
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 30px;
+    }
+
+    .sub {
+      color: #9da7b4;
+      margin-bottom: 18px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 130px;
+      resize: vertical;
+      padding: 15px;
+      border: 1px solid #35404d;
+      border-radius: 14px;
+      background: #0e1217;
+      color: white;
+      font-size: 16px;
+      outline: none;
+    }
+
+    textarea:focus {
+      border-color: #718096;
+    }
+
+    button {
+      margin-top: 12px;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 12px;
+      background: white;
+      color: #111;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .reply {
+      margin-top: 18px;
+      min-height: 90px;
+      padding: 16px;
+      background: #0e1217;
+      border: 1px solid #303946;
+      border-radius: 14px;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
+    .meta {
+      margin-top: 10px;
+      color: #7f8a99;
+      font-size: 13px;
+    }
+
+    .error {
+      color: #ff9999;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="app">
+  <div class="box">
+
+    <h1>LUMORA</h1>
+
+    <div class="sub">
+      KI mit Daten aus <b>DATEN/*.json</b>
+    </div>
+
+    <textarea
+      id="message"
+      placeholder="Schreibe eine Nachricht..."
+    ></textarea>
+
+    <button id="send">
+      Senden
+    </button>
+
+    <div id="reply" class="reply">
+      Noch keine Antwort.
+    </div>
+
+    <div id="meta" class="meta"></div>
+
+  </div>
+</div>
+
+<script>
+
+/* =========================================================
+   TOKENIZER
+   ========================================================= */
+
+const STOPWORDS = new Set([
+  "aber",
+  "alle",
+  "als",
+  "also",
+  "am",
+  "an",
+  "auch",
+  "auf",
+  "aus",
+  "bei",
+  "bin",
+  "bis",
+  "bist",
+  "da",
+  "dabei",
+  "damit",
+  "dann",
+  "das",
+  "dass",
+  "dein",
+  "dem",
+  "den",
+  "der",
+  "des",
+  "die",
+  "dir",
+  "doch",
+  "du",
+  "ein",
+  "eine",
+  "einem",
+  "einen",
+  "einer",
+  "eines",
+  "er",
+  "es",
+  "für",
+  "ganz",
+  "hat",
+  "hast",
+  "hier",
+  "ich",
+  "im",
+  "in",
+  "ist",
+  "ja",
+  "kann",
+  "kein",
+  "mit",
+  "nach",
+  "nicht",
+  "noch",
+  "nur",
+  "oder",
+  "sie",
+  "sind",
+  "so",
+  "und",
+  "uns",
+  "vom",
+  "von",
+  "vor",
+  "war",
+  "was",
+  "wie",
+  "wir",
+  "zu",
+  "zum",
+  "zur"
+]);
+
+function normalizeText(text) {
+
+  return String(text)
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+}
+
+function tokenize(text) {
+
+  const normalized = normalizeText(text);
+
+  return normalized
+    .split(/\s+/)
+    .filter(word => word.length >= 2)
+    .filter(word => !STOPWORDS.has(word));
+
+}
+
+function uniqueTokens(tokens) {
+
+  return [...new Set(tokens)];
+
+}
+
+
+/* =========================================================
+   NACHRICHT SENDEN
+   ========================================================= */
+
+async function askAI() {
+
+  const messageElement = document.getElementById("message");
+  const replyElement = document.getElementById("reply");
+  const metaElement = document.getElementById("meta");
+  const sendButton = document.getElementById("send");
+
+  const message = messageElement.value.trim();
+
+  if (!message) {
+
+    replyElement.textContent =
+      "Bitte zuerst eine Nachricht eingeben.";
+
+    metaElement.textContent = "";
+
+    return;
+  }
+
+  /* Nachricht wird tokenisiert */
+
+  const tokens = uniqueTokens(
+    tokenize(message)
+  );
+
+  sendButton.disabled = true;
+
+  replyElement.textContent =
+    "LUMORA denkt nach...";
+
+  metaElement.textContent =
+    `Tokenizer: ${tokens.length} Token`;
+
+  try {
+
+    const response = await fetch("/api/chat", {
+
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+
+        message: message,
+
+        tokens: tokens
+
+      })
+
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+
+      throw new Error(
+        data.error || "Serverfehler"
+      );
+
+    }
+
+    replyElement.textContent =
+      data.answer || "Keine Antwort gefunden.";
+
+    metaElement.textContent =
+      `Token: ${tokens.length} · ` +
+      `Treffer: ${data.matches} · ` +
+      `Datensätze: ${data.documents}`;
+
+  }
+
+  catch (error) {
+
+    replyElement.innerHTML = "";
+
+    const errorElement =
+      document.createElement("span");
+
+    errorElement.className = "error";
+
+    errorElement.textContent =
+      "Fehler: " + error.message;
+
+    replyElement.appendChild(errorElement);
+
+    metaElement.textContent = "";
+
+  }
+
+  finally {
+
+    sendButton.disabled = false;
+
+  }
+
+}
+
+
+/* =========================================================
+   BUTTON
+   ========================================================= */
+
+document
+  .getElementById("send")
+  .addEventListener("click", askAI);
+
+
+/* =========================================================
+   STRG + ENTER
+   ========================================================= */
+
+document
+  .getElementById("message")
+  .addEventListener("keydown", event => {
+
+    if (
+      event.key === "Enter" &&
+      (event.ctrlKey || event.metaKey)
+    ) {
+
+      askAI();
+
+    }
+
+  });
+
+</script>
+
+</body>
+</html>
